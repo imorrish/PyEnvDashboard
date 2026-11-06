@@ -1,0 +1,28 @@
+[project]
+name = "uv-dash"
+version = "0.1.0"
+description = "Cross-platform dashboard for discovering and managing uv Python projects and environments"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Ian Morrish", email = "ian_morrish@hotmail.com" },
+]
+dependencies = [
+    "flet[all]>=0.28.0",
+]
+
+[project.scripts]
+uv-dash = "uv_dash.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[tool.flet]
+org = "com.morrsoft" 
+product = "uv-dash"
+company = "Ian Morrish"
+copyright = "Copyright (C) 2026 Ian Morrish"

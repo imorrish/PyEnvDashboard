@@ -1,0 +1,148 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to create (e.g. v0.1.0). Leave empty to only build artifacts."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  PRODUCT: uv-dash
+  ORG: com.morrsoft
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+            artifact_name: uv-dash-windows
+          - os: macos-latest
+            target: macos
+            artifact_name: uv-dash-macos
+          - os: ubuntu-latest
+            target: linux
+            artifact_name: uv-dash-linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install project + Flet CLI
+        run: |
+          uv sync --all-extras
+          uv add --dev flet-cli flet-desktop
+
+      - name: Linux system dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - name: Build ${{ matrix.target }}
+        run: |
+          uv run flet build ${{ matrix.target }} \
+            --product "${{ env.PRODUCT }}" \
+            --org "${{ env.ORG }}" \
+            --module-name uv_dash.main \
+            --yes \
+            -o dist/${{ matrix.artifact_name }}
+
+      - name: Package artifact (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/${{ matrix.artifact_name }}/*" `
+            -DestinationPath "dist/${{ matrix.artifact_name }}.zip"
+
+      - name: Package artifact (macOS)
+        if: matrix.target == 'macos'
+        run: |
+          cd dist
+          # Prefer the .app bundle if present
+          if ls ${{ matrix.artifact_name }}/*.app >/dev/null 2>&1; then
+            ditto -c -k --sequesterRsrc --keepParent \
+              ${{ matrix.artifact_name }}/*.app \
+              ${{ matrix.artifact_name }}.zip
+          else
+            ditto -c -k --sequesterRsrc --keepParent \
+              ${{ matrix.artifact_name }} \
+              ${{ matrix.artifact_name }}.zip
+          fi
+
+      - name: Package artifact (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          cd dist
+          tar -czf ${{ matrix.artifact_name }}.tar.gz -C ${{ matrix.artifact_name }} .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            dist/${{ matrix.artifact_name }}.zip
+            dist/${{ matrix.artifact_name }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
+
+    steps:
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "name=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Flatten assets
+        run: |
+          mkdir -p upload
+          find release-assets -type f \( -name '*.zip' -o -name '*.tar.gz' \) \
+            -exec cp -v {} upload/ \;
+          ls -la upload/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: uv-dash ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: upload/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
