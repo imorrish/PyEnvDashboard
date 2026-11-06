@@ -67,7 +67,7 @@ jobs:
           uv run flet build ${{ matrix.target }} \
             --product "${{ env.PRODUCT }}" \
             --org "${{ env.ORG }}" \
-            --module-name uv_dash.main \
+            --module-name main \
             --yes \
             -o dist/${{ matrix.artifact_name }}
 
