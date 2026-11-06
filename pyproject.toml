@@ -26,3 +26,7 @@ org = "com.morrsoft"
 product = "uv-dash"
 company = "Ian Morrish"
 copyright = "Copyright (C) 2026 Ian Morrish"
+
+[tool.flet.app]
+path = "src"
+module = "main"
