@@ -8,7 +8,7 @@ So I used Grok to scafold a project, worked on the windows version, then had to 
 
 Result: Flet/flutter-based uv project dashboard — pure Python, cross-platform.
 
- ![UV-Dash app screen shot](screenshot.png) 
+ ![UV-Dash app screen shot](Screenshot.png) 
 
 ## Features
 
