@@ -54,6 +54,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "uv_only": False,
     # Theme: "system" | "light" | "dark"
     "theme": "system",
+    # External editors available from the project detail view
+    "editors": {
+        "vscode": True,
+        "marimo": False,
+        "pycharm": False,
+        "jupyter": False,
+        "neovim": False,
+    },
+    "default_editor": "vscode",
+    "marimo_url": "http://localhost",
 }
 
 
@@ -65,6 +75,9 @@ def load_config() -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
         merged = dict(DEFAULT_CONFIG)
         merged.update(data)
+        editors = dict(DEFAULT_CONFIG["editors"])
+        editors.update(data.get("editors") or {})
+        merged["editors"] = editors
         return merged
     except (OSError, json.JSONDecodeError):
         return dict(DEFAULT_CONFIG)

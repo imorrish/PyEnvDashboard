@@ -9,9 +9,11 @@ import flet as ft
 from uv_dash import __version__
 from uv_dash.actions import (
     delete_venv,
-    open_editor,
     open_in_file_manager,
     open_terminal,
+    EDITOR_LABELS,
+    open_with_editor,
+    uv_version,
     uv_sync,
     which_uv,
 )
@@ -231,6 +233,59 @@ def build_app(page: ft.Page) -> None:
             except Exception as ex:
                 set_status(f"Terminal error: {ex}")
 
+        editor_cfg = load_config()
+        enabled_editors = [
+            editor
+            for editor, enabled in editor_cfg.get("editors", {}).items()
+            if enabled and editor in EDITOR_LABELS
+        ]
+        default_editor = editor_cfg.get("default_editor", "vscode")
+        if default_editor not in enabled_editors:
+            default_editor = enabled_editors[0] if enabled_editors else None
+
+        def do_editor(editor: Optional[str]) -> None:
+            if not editor:
+                set_status("Enable an editor in Settings first")
+                return
+            try:
+                open_with_editor(p, editor, str(editor_cfg.get("marimo_url", "http://localhost")))
+                set_status(f"Opened {EDITOR_LABELS[editor]} for {p.name}")
+            except Exception as ex:
+                set_status(f"Editor error: {ex}")
+
+        selected_editor = default_editor
+
+        def choose_editor(editor: str) -> None:
+            nonlocal selected_editor
+            selected_editor = editor
+            do_editor(editor)
+
+        editor_control = ft.DropdownM2(
+            value=default_editor,
+            options=[
+                ft.dropdownm2.Option(
+                    key=editor,
+                    text=EDITOR_LABELS[editor],
+                    on_click=lambda e, selected=editor: choose_editor(selected),
+                )
+                for editor in enabled_editors
+            ],
+            width=190,
+            dense=True,
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border=ft.OutlineInputBorder(
+                border_radius=ft.BorderRadius.all(24),
+                side=ft.BorderSide.none(),
+            ),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+        )
+        editor_launch_button = ft.IconButton(
+            icon=ft.Icons.EDIT,
+            tooltip="Open selected editor",
+            on_click=lambda e: do_editor(selected_editor),
+        )
+
         def confirm_delete_venv(e=None) -> None:
             if not p.has_venv:
                 set_status("No .venv to delete")
@@ -290,10 +345,10 @@ def build_app(page: ft.Page) -> None:
                             ft.Icons.FOLDER_OPEN,
                             lambda e: open_in_file_manager(p.path),
                         ),
-                        action_btn(
-                            "Editor",
-                            ft.Icons.CODE,
-                            lambda e: open_editor(p),
+                        ft.Row(
+                            [editor_launch_button, editor_control],
+                            spacing=4,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         action_btn("uv sync", ft.Icons.SYNC, do_sync),
                         action_btn(
@@ -405,6 +460,29 @@ def build_app(page: ft.Page) -> None:
             label="Only show projects with uv.lock or .venv",
             value=bool(cfg.get("uv_only", False)),
         )
+        editor_cfg = cfg.get("editors", {})
+        editor_switches = {
+            editor: ft.Switch(
+                label=label,
+                value=bool(editor_cfg.get(editor, False)),
+            )
+            for editor, label in EDITOR_LABELS.items()
+        }
+        default_editor_dd = ft.Dropdown(
+            label="Default editor",
+            value=str(cfg.get("default_editor", "vscode")),
+            options=[
+                ft.dropdown.Option(editor, label)
+                for editor, label in EDITOR_LABELS.items()
+            ],
+            width=220,
+        )
+        marimo_url_field = ft.TextField(
+            label="Marimo URL",
+            value=str(cfg.get("marimo_url", "http://localhost")),
+            hint_text="http://localhost",
+            width=320,
+        )
 
         def save(ev) -> None:
             lines = [
@@ -418,6 +496,22 @@ def build_app(page: ft.Page) -> None:
             except ValueError:
                 cfg["max_depth"] = 6
             cfg["uv_only"] = bool(uv_only_sw.value)
+            cfg["editors"] = {
+                editor: bool(control.value)
+                for editor, control in editor_switches.items()
+            }
+            selected_default = default_editor_dd.value or "vscode"
+            if not cfg["editors"].get(selected_default):
+                selected_default = next(
+                    (
+                        editor
+                        for editor, enabled in cfg["editors"].items()
+                        if enabled
+                    ),
+                    "vscode",
+                )
+            cfg["default_editor"] = selected_default
+            cfg["marimo_url"] = (marimo_url_field.value or "http://localhost").strip()
             save_config(cfg)
             dlg.open = False
             page.update()
@@ -432,11 +526,22 @@ def build_app(page: ft.Page) -> None:
             title=ft.Text("Settings"),
             content=ft.Container(
                 content=ft.Column(
-                    [roots_field, depth_field, uv_only_sw],
+                    [
+                        roots_field,
+                        depth_field,
+                        uv_only_sw,
+                        ft.Divider(),
+                        ft.Text("Editors", weight=ft.FontWeight.W_600),
+                        *editor_switches.values(),
+                        default_editor_dd,
+                        marimo_url_field,
+                    ],
                     tight=True,
                     spacing=12,
+                    scroll=ft.ScrollMode.AUTO,
                 ),
                 width=480,
+                height=500,
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=cancel),
@@ -494,13 +599,23 @@ def build_app(page: ft.Page) -> None:
 
     body = ft.Row([left, right], expand=True, spacing=0)
 
+    uv_path = which_uv()
+    installed_uv_version = uv_version() if uv_path else None
+    uv_status = (
+        f"uv: found ({installed_uv_version})"
+        if installed_uv_version
+        else "uv: found (version unavailable)"
+        if uv_path
+        else "uv: NOT ON PATH"
+    )
+
     footer = ft.Container(
         content=ft.Row(
             [
                 status_text,
                 progress,
                 ft.Text(
-                    f"uv: {'found' if which_uv() else 'NOT ON PATH'}",
+                    uv_status,
                     size=11,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
